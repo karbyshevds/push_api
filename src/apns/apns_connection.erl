@@ -110,7 +110,7 @@ handle_cast(_Request, State) ->
 
 -spec handle_info(Info :: timeout() | term(), State) ->
   {noreply, State}.
-handle_info({send, APNSID, Message, Headers}, #{gun_connection := GunConnection} = State) ->
+handle_info({send, APNSID, Message, Headers}, #{gun_connection := GunConnection, connection := #{report_error_fun := ErrorFun}} = State) ->
   Path = <<"/3/device/", APNSID/binary>>,
 
   Expiry = maps:get(?APNS_EXPIRY,Headers,0),
@@ -122,8 +122,14 @@ handle_info({send, APNSID, Message, Headers}, #{gun_connection := GunConnection}
   ],
   MsgHeaders = set_other_header(Headers,BaseHeaders),
 
-  MsgData = apns_message:get_message(Message),
-  gun:post(GunConnection,Path,MsgHeaders,MsgData),
+  try
+    MsgData = apns_message:get_message(Message),
+    gun:post(GunConnection,Path,MsgHeaders,MsgData)
+  catch _:Reason ->
+    Stack = erlang:get_stacktrace(),
+    ErrorFun(APNSID,Reason,APNSID,[Message, Stack]),
+    false
+  end,
   {noreply, State#{last_token => APNSID}}
 ;
 handle_info( {'DOWN', GunMonitor, process, GunConnPid, _}

@@ -16,9 +16,11 @@
 -type subscription() :: {regid(), webpush_encryption:publicKey(), webpush_encryption:authTokeny()}.
 
 -spec push(regids(),message(),map()) -> {'error',any()} | {'noreply','unknown'} | {'ok',result()}.
-push(RegIds, Message, State) ->
-  Request = jsone:encode(Message#{<<"registration_ids">> => RegIds}),
-  push(Request, State, [], ?BASEURL).
+push(RegIds, Message, #{report_error_fun := ErrorFun} = State) ->
+  case build_request(Message, RegIds, ErrorFun) of
+    {undefined, Reason} -> {error, Reason};
+    Request             -> push(Request, State, [], ?BASEURL)
+  end.
 
 -spec push(message(), map(), headers(), string()) -> {'error',any()} | {'noreply','unknown'} | {'ok',result()} | {'ok','ok'}.
 push(Request, #{key:=Key, report_error_fun:=ErrorFun}, Headers, BaseUrl) ->
@@ -72,3 +74,13 @@ response_to_binary(Json) when is_binary(Json) ->
 
 response_to_binary(Json) when is_list(Json) ->
   list_to_binary(Json).
+
+build_request(Message, RegIds, ErrorFun) ->
+  try
+    Request = jsone:encode(Message#{<<"registration_ids">> => RegIds})
+  catch _:Reason ->
+    Stack = erlang:get_stacktrace(),
+    ErrorFun(RegIds, [Message, Reason, Stack]),
+    {undefined, Reason}
+  end.
+
